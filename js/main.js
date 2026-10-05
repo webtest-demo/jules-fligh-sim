@@ -20,6 +20,8 @@ class FlightSimulatorApp {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.container.appendChild(this.renderer.domElement);
 
+        window.app = this;
+
         // Simulation Modules
         this.physics = new FlightPhysics();
         this.aircraft = new AircraftModel();
@@ -126,11 +128,25 @@ class FlightSimulatorApp {
 
         const dt = this.clock.getDelta();
 
+        // Handle Crash UI Overlay
+        const crashOverlay = document.getElementById('crash-overlay');
+        const crashReasonEl = document.getElementById('crash-reason');
+        if (this.physics.isCrashed) {
+            if (crashOverlay && crashOverlay.style.display !== 'flex') {
+                crashOverlay.style.display = 'flex';
+                if (crashReasonEl) crashReasonEl.textContent = this.physics.crashReason;
+            }
+        } else {
+            if (crashOverlay && crashOverlay.style.display !== 'none') {
+                crashOverlay.style.display = 'none';
+            }
+        }
+
         // 1. Process User Inputs
         this.processInputs(dt);
 
-        // 2. Update Physics Engine
-        this.physics.update(dt);
+        // 2. Update Physics Engine with Terrain Lookup
+        this.physics.update(dt, (x, z) => this.world.getTerrainHeight(x, z));
 
         // 3. Update 3D Aircraft Model
         this.aircraft.update(this.physics, dt);

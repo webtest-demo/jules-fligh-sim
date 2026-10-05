@@ -76,6 +76,15 @@
             <div class="telem-item" id="stall-warning" style="display:none; color:#ff3333; font-weight:bold; animation: blink 0.5s infinite;">STALL WARNING</div>
             <div class="telem-item" id="brake-indicator" style="display:none; color:#ffcc00; font-weight:bold;">BRAKES ON</div>
         </div>
+
+        <!-- Crash Banner Overlay -->
+        <div id="crash-overlay" style="display:none;">
+            <div class="crash-box">
+                <h2>CRASH DETECTED</h2>
+                <p id="crash-reason">Aircraft was destroyed in impact.</p>
+                <div class="restart-prompt">Press <span class="key">R</span> to Restart Flight</div>
+            </div>
+        </div>
     </div>
 
     <script type="module" src="js/main.js"></script>

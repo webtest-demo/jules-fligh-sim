@@ -124,6 +124,10 @@ export class WorldEnvironment {
     }
 
     getProceduralHeight(x, z) {
+        // Keep airport valley flat around origin (z: -1800 to +1800, x: -600 to +600)
+        const distFromRunwayX = Math.abs(x);
+        const distFromRunwayZ = Math.abs(z);
+
         // Multi-layered sine wave noise for natural mountain terrain
         const nx = x * 0.0005;
         const nz = z * 0.0005;
@@ -138,7 +142,18 @@ export class WorldEnvironment {
             h += (distFromCenter - 1000) * 0.25;
         }
 
-        return Math.max(0, h);
+        const rawHeight = Math.max(0, h);
+
+        if (distFromRunwayX < 600 && distFromRunwayZ < 1800) {
+            const flatFactor = Math.min(1.0, Math.max(0.0, (distFromRunwayX - 250) / 350));
+            return rawHeight * flatFactor;
+        }
+
+        return rawHeight;
+    }
+
+    getTerrainHeight(x, z) {
+        return this.getProceduralHeight(x, z);
     }
 
     buildAirport() {

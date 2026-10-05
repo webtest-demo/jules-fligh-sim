@@ -25,12 +25,12 @@ export class FlightPhysics {
         this.oswaldEfficiency = 0.80; // Oswald efficiency factor for induced drag
 
         // Control Surface Efficiency Factors
-        this.elevatorAuthority = 0.035;
-        this.aileronAuthority = 0.040;
-        this.rudderAuthority = 0.025;
-        this.pitchDamping = 2.5;
-        this.rollDamping = 3.5;
-        this.yawDamping = 2.0;
+        this.elevatorAuthority = 0.085; // Increased for strong pitch response
+        this.aileronAuthority = 0.065;
+        this.rudderAuthority = 0.045;
+        this.pitchDamping = 1.8;
+        this.rollDamping = 2.5;
+        this.yawDamping = 1.8;
 
         // Initial State
         this.resetState();
@@ -69,10 +69,14 @@ export class FlightPhysics {
         this.aoaDeg = 0;
         this.isStalling = false;
         this.isGrounded = onRunway;
+        this.isCrashed = false;
+        this.crashReason = '';
         this.engineRPM = onRunway ? this.idleRPM : 2300;
     }
 
-    update(dt) {
+    update(dt, getTerrainHeight = null) {
+        if (this.isCrashed) return; // Stop simulation on crash
+
         if (dt > 0.1) dt = 0.1; // Cap delta time for stability
 
         // Calculate current air density based on altitude (barometric formula approximation)
@@ -97,18 +101,18 @@ export class FlightPhysics {
         }
         this.aoaDeg = ((this.pitch - flightPathPitch) * 180 / Math.PI);
 
-        // 2. Engine Thrust Calculation
+        // 2. Engine Thrust Calculation - Fast spool and boosted takeoff acceleration
         const targetRPM = this.idleRPM + this.controls.throttle * (this.maxRPM - this.idleRPM);
-        this.engineRPM += (targetRPM - this.engineRPM) * Math.min(1, dt * 3.0);
+        this.engineRPM += (targetRPM - this.engineRPM) * Math.min(1, dt * 6.0);
 
-        // Thrust = Power / Speed (with low-speed static thrust limit)
+        // Thrust = Power / Speed (with boosted low-speed static thrust)
         const currentPowerW = (this.engineRPM / this.maxRPM) * (this.maxPowerKW * 1000) * this.propellerEfficiency;
-        const effectiveSpeed = Math.max(15, speed);
-        let thrustForce = currentPowerW / effectiveSpeed; // Newtons
+        const effectiveSpeed = Math.max(10, speed);
+        let thrustForce = (currentPowerW / effectiveSpeed) * 1.6; // Increased general thrust baseline
 
-        // Static thrust boost at low speed (takeoff roll)
-        if (speed < 15) {
-            thrustForce = (currentPowerW / 15) * (1.2 - 0.2 * (speed / 15));
+        // Static thrust boost at low speed for rapid acceleration
+        if (speed < 25) {
+            thrustForce *= (2.2 - 1.0 * (speed / 25));
         }
 
         // 3. Lift & Drag Coefficients
@@ -171,35 +175,6 @@ export class FlightPhysics {
         totalFy += upY * liftForce;
         totalFz += upZ * liftForce;
 
-        // 5. Ground Physics & Collision (Landing Gear Ground Plane y = 1.8)
-        const minHeight = 1.8;
-        if (this.position.y <= minHeight) {
-            this.isGrounded = true;
-            this.position.y = minHeight;
-
-            // Ground normal force (cancels downward vertical force if on ground)
-            if (totalFy < 0) totalFy = 0;
-            if (this.worldVelocity.y < 0) this.worldVelocity.y = 0;
-
-            // Ground friction & braking
-            const frictionCoeff = this.controls.brakes ? 0.35 : 0.03;
-            const normalForce = this.mass * this.gravity;
-            const frictionForce = normalForce * frictionCoeff;
-
-            if (speed > 0.1) {
-                totalFx -= velX * frictionForce;
-                totalFz -= velZ * frictionForce;
-            }
-
-            // Level pitch/roll gradually when firmly grounded at low speeds
-            if (speed < 20) {
-                this.pitch *= 0.92;
-                this.roll *= 0.92;
-            }
-        } else {
-            this.isGrounded = false;
-        }
-
         // Linear Acceleration (a = F/m)
         const ax = totalFx / this.mass;
         const ay = totalFy / this.mass;
@@ -214,12 +189,65 @@ export class FlightPhysics {
         this.position.y += this.worldVelocity.y * dt;
         this.position.z += this.worldVelocity.z * dt;
 
+        // 5. Ground Physics, Terrain Collision & Crash Engine
+        let terrainY = 0;
+        if (getTerrainHeight) {
+            terrainY = getTerrainHeight(this.position.x, this.position.z);
+        }
+        const gearHeight = 1.8;
+        const groundLevel = terrainY + gearHeight;
+
+        if (this.position.y <= groundLevel) {
+            const verticalImpactSpeed = Math.abs(this.worldVelocity.y);
+            const pitchDeg = Math.abs(this.pitch * 180 / Math.PI);
+            const rollDeg = Math.abs(this.roll * 180 / Math.PI);
+
+            // Crash conditions: high vertical speed on impact, inverted/steep roll/pitch, or mountain terrain collision
+            if (terrainY > 15 || verticalImpactSpeed > 8.0 || pitchDeg > 25 || rollDeg > 30) {
+                this.isCrashed = true;
+                if (terrainY > 15) {
+                    this.crashReason = 'Collided with mountain terrain!';
+                } else if (verticalImpactSpeed > 8.0) {
+                    this.crashReason = 'Hard landing / impact speed too high!';
+                } else {
+                    this.crashReason = 'Aircraft crashed due to severe pitch/roll attitude!';
+                }
+                this.worldVelocity = { x: 0, y: 0, z: 0 };
+                return;
+            }
+
+            this.isGrounded = true;
+            this.position.y = groundLevel;
+
+            // Ground normal force (cancels downward vertical force if on ground)
+            if (totalFy < 0) totalFy = 0;
+            if (this.worldVelocity.y < 0) this.worldVelocity.y = 0;
+
+            // Ground friction & braking
+            const frictionCoeff = this.controls.brakes ? 0.45 : 0.02;
+            const normalForce = this.mass * this.gravity;
+            const frictionForce = normalForce * frictionCoeff;
+
+            if (speed > 0.1) {
+                this.worldVelocity.x *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
+                this.worldVelocity.z *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
+            }
+
+            // Level pitch/roll gradually when firmly grounded at low speeds
+            if (speed < 20) {
+                this.pitch *= 0.90;
+                this.roll *= 0.90;
+            }
+        } else {
+            this.isGrounded = false;
+        }
+
         // 6. Rotational Dynamics & Control Surface Moments
         // Control Inputs + Trim
         const effectivePitchInput = this.controls.pitch + (this.controls.trim * 0.3);
 
-        // Control effectiveness increases with dynamic pressure (speed sq)
-        const controlQ = Math.min(1.5, dynamicPressure / 500.0);
+        // Dynamic control effectiveness with minimum baseline authority even at low speed / prop wash
+        const controlQ = Math.max(0.6, Math.min(2.5, dynamicPressure / 200.0));
 
         // Pitch, Roll, Yaw Torques / Target Rates
         const targetPitchRate = effectivePitchInput * this.elevatorAuthority * controlQ;
@@ -228,7 +256,7 @@ export class FlightPhysics {
 
         // Ground steering via rudder when grounded
         if (this.isGrounded) {
-            targetYawRate += -this.controls.yaw * 0.02 * (speed / 10);
+            targetYawRate += -this.controls.yaw * 0.05 * (speed / 10);
             targetRollRate *= 0.1; // Resistance to roll on ground
         }
 
@@ -237,8 +265,9 @@ export class FlightPhysics {
         this.rollRate += (targetRollRate - this.rollRate * this.rollDamping) * dt * 10;
         this.yawRate += (targetYawRate - this.yawRate * this.yawDamping) * dt * 10;
 
-        // Integrate Rotations
-        this.pitch += this.pitchRate * dt;
+        // Integrate Rotations with 85-degree pitch limits (prevent gimbal locks while allowing full climbs/descents)
+        const maxPitch = (85 * Math.PI) / 180;
+        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch + this.pitchRate * dt));
         this.roll += this.rollRate * dt;
         this.heading += this.yawRate * dt;
 
