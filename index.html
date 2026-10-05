@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cessna 172 Flight Simulator</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Import map for Three.js -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <!-- HUD & Instrument Panel Overlay -->
+    <div id="hud-overlay">
+        <!-- Flight Controls Quick Help Guide -->
+        <div id="help-panel" class="panel">
+            <h3>Flight Controls [H to hide]</h3>
+            <ul>
+                <li><span class="key">W</span> / <span class="key">S</span> : Pitch Down / Pitch Up (Elevator)</li>
+                <li><span class="key">A</span> / <span class="key">D</span> : Roll Left / Roll Right (Ailerons)</li>
+                <li><span class="key">Q</span> / <span class="key">E</span> : Yaw Left / Yaw Right (Rudder)</li>
+                <li><span class="key">Shift</span> / <span class="key">Ctrl</span> : Increase / Decrease Throttle</li>
+                <li><span class="key">F</span> / <span class="key">V</span> : Flaps Down / Flaps Up</li>
+                <li><span class="key">T</span> / <span class="key">G</span> : Trim Nose Down / Nose Up</li>
+                <li><span class="key">B</span> : Brakes (Hold)</li>
+                <li><span class="key">C</span> : Camera View (Cockpit / Chase)</li>
+                <li><span class="key">R</span> : Reset Flight</li>
+            </ul>
+        </div>
+
+        <!-- Cockpit Dashboard / Instruments -->
+        <div id="dashboard">
+            <div class="gauge-container">
+                <canvas id="gauge-asi" width="140" height="140"></canvas>
+                <div class="gauge-label">AIRSPEED (KTS)</div>
+            </div>
+            <div class="gauge-container">
+                <canvas id="gauge-adi" width="140" height="140"></canvas>
+                <div class="gauge-label">ATTITUDE</div>
+            </div>
+            <div class="gauge-container">
+                <canvas id="gauge-alt" width="140" height="140"></canvas>
+                <div class="gauge-label">ALTITUDE (FT)</div>
+            </div>
+            <div class="gauge-container">
+                <canvas id="gauge-hdg" width="140" height="140"></canvas>
+                <div class="gauge-label">HEADING</div>
+            </div>
+            <div class="gauge-container">
+                <canvas id="gauge-vsi" width="140" height="140"></canvas>
+                <div class="gauge-label">VERTICAL SPEED</div>
+            </div>
+            <div class="gauge-container">
+                <canvas id="gauge-rpm" width="140" height="140"></canvas>
+                <div class="gauge-label">RPM / THROTTLE</div>
+            </div>
+        </div>
+
+        <!-- Flight Telemetry Bar -->
+        <div id="telemetry-bar">
+            <div class="telem-item"><span class="label">SPEED:</span> <span id="val-speed">0</span> kts</div>
+            <div class="telem-item"><span class="label">ALT:</span> <span id="val-alt">0</span> ft</div>
+            <div class="telem-item"><span class="label">PITCH:</span> <span id="val-pitch">0</span>°</div>
+            <div class="telem-item"><span class="label">ROLL:</span> <span id="val-roll">0</span>°</div>
+            <div class="telem-item"><span class="label">THROTTLE:</span> <span id="val-throttle">0</span>%</div>
+            <div class="telem-item"><span class="label">FLAPS:</span> <span id="val-flaps">0</span>°</div>
+            <div class="telem-item"><span class="label">TRIM:</span> <span id="val-trim">0</span>°</div>
+            <div class="telem-item" id="stall-warning" style="display:none; color:#ff3333; font-weight:bold; animation: blink 0.5s infinite;">STALL WARNING</div>
+            <div class="telem-item" id="brake-indicator" style="display:none; color:#ffcc00; font-weight:bold;">BRAKES ON</div>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
