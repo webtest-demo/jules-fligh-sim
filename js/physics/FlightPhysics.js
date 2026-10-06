@@ -25,9 +25,9 @@ export class FlightPhysics {
         this.oswaldEfficiency = 0.80; // Oswald efficiency factor for induced drag
 
         // Control Surface Efficiency Factors
-        this.elevatorAuthority = 0.085; // Increased for strong pitch response
-        this.aileronAuthority = 0.065;
-        this.rudderAuthority = 0.045;
+        this.elevatorAuthority = 0.17; // 2x increased control responsiveness
+        this.aileronAuthority = 0.13;
+        this.rudderAuthority = 0.09;
         this.pitchDamping = 1.8;
         this.rollDamping = 2.5;
         this.yawDamping = 1.8;

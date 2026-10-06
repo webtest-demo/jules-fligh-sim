@@ -70,29 +70,29 @@ class FlightSimulatorApp {
     }
 
     processInputs(dt) {
-        // Pitch Control (W / S)
+        // Pitch Control (W / S) - 2x faster rate
         if (this.keys['KeyW']) {
-            this.physics.controls.pitch = Math.max(-1.0, this.physics.controls.pitch - dt * 3.0);
+            this.physics.controls.pitch = Math.max(-1.0, this.physics.controls.pitch - dt * 6.0);
         } else if (this.keys['KeyS']) {
-            this.physics.controls.pitch = Math.min(1.0, this.physics.controls.pitch + dt * 3.0);
+            this.physics.controls.pitch = Math.min(1.0, this.physics.controls.pitch + dt * 6.0);
         } else {
             this.physics.controls.pitch *= 0.82; // Return to center
         }
 
-        // Roll Control (A / D)
+        // Roll Control (A / D) - 2x faster rate
         if (this.keys['KeyA']) {
-            this.physics.controls.roll = Math.max(-1.0, this.physics.controls.roll - dt * 3.0);
+            this.physics.controls.roll = Math.max(-1.0, this.physics.controls.roll - dt * 6.0);
         } else if (this.keys['KeyD']) {
-            this.physics.controls.roll = Math.min(1.0, this.physics.controls.roll + dt * 3.0);
+            this.physics.controls.roll = Math.min(1.0, this.physics.controls.roll + dt * 6.0);
         } else {
             this.physics.controls.roll *= 0.82;
         }
 
-        // Yaw Control (Q / E)
+        // Yaw Control (Q / E) - 2x faster rate
         if (this.keys['KeyQ']) {
-            this.physics.controls.yaw = Math.max(-1.0, this.physics.controls.yaw - dt * 3.0);
+            this.physics.controls.yaw = Math.max(-1.0, this.physics.controls.yaw - dt * 6.0);
         } else if (this.keys['KeyE']) {
-            this.physics.controls.yaw = Math.min(1.0, this.physics.controls.yaw + dt * 3.0);
+            this.physics.controls.yaw = Math.min(1.0, this.physics.controls.yaw + dt * 6.0);
         } else {
             this.physics.controls.yaw *= 0.82;
         }
