@@ -6,6 +6,10 @@ export class WorldEnvironment {
         this.clouds = [];
         this.windsockProp = null;
 
+        // Procedural Textures for distance & altitude visual perception
+        this.terrainTexture = this.generateTerrainDetailTexture();
+        this.runwayTexture = this.generateRunwayAsphaltTexture();
+
         this.buildLighting();
         this.buildSkyAndSun();
         this.buildMountainTerrain();
@@ -49,6 +53,81 @@ export class WorldEnvironment {
         const sunMesh = new THREE.Mesh(sunGeo, sunMat);
         sunMesh.position.set(1200, 1800, 960);
         this.scene.add(sunMesh);
+    }
+
+    generateTerrainDetailTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#808080';
+        ctx.fillRect(0, 0, 512, 512);
+
+        // High frequency noise / rock-grass grain texture
+        const imgData = ctx.getImageData(0, 0, 512, 512);
+        const data = imgData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const grain = (Math.random() - 0.5) * 60;
+            data[i] = Math.min(255, Math.max(0, 128 + grain));
+            data[i + 1] = Math.min(255, Math.max(0, 128 + grain));
+            data[i + 2] = Math.min(255, Math.max(0, 128 + grain));
+            data[i + 3] = 255;
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+
+        // Grid pattern overlay for clear altitude/distance grid cues
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 4;
+        const step = 64;
+        for (let x = 0; x <= 512; x += step) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, 512);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, x);
+            ctx.lineTo(512, x);
+            ctx.stroke();
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(120, 120); // Repeated over 12000m terrain
+        return texture;
+    }
+
+    generateRunwayAsphaltTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#22262d';
+        ctx.fillRect(0, 0, 256, 256);
+
+        const imgData = ctx.getImageData(0, 0, 256, 256);
+        const data = imgData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const noise = (Math.random() - 0.5) * 35;
+            data[i] = Math.min(255, Math.max(0, 35 + noise));
+            data[i + 1] = Math.min(255, Math.max(0, 38 + noise));
+            data[i + 2] = Math.min(255, Math.max(0, 45 + noise));
+            data[i + 3] = 255;
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(6, 120);
+        return texture;
     }
 
     buildMountainTerrain() {
@@ -114,6 +193,7 @@ export class WorldEnvironment {
 
         const terrainMat = new THREE.MeshStandardMaterial({
             vertexColors: true,
+            map: this.terrainTexture,
             roughness: 0.9,
             metalness: 0.1
         });
@@ -163,6 +243,7 @@ export class WorldEnvironment {
         const runwayGeo = new THREE.PlaneGeometry(60, 3000);
         runwayGeo.rotateX(-Math.PI / 2);
         const runwayMat = new THREE.MeshStandardMaterial({
+            map: this.runwayTexture,
             color: 0x1e293b,
             roughness: 0.8
         });
