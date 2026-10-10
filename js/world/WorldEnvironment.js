@@ -16,6 +16,7 @@ export class WorldEnvironment {
         this.buildAirport();
         this.buildClouds();
         this.buildTrees();
+        this.buildCows();
     }
 
     buildLighting() {
@@ -375,6 +376,168 @@ export class WorldEnvironment {
         }
 
         this.scene.add(treeGroup);
+    }
+
+    buildCows() {
+        const cowGroup = new THREE.Group();
+
+        // Herds scattered across valley grass fields
+        const herdCenters = [
+            { x: -350, z: -400 },
+            { x: 400, z: -200 },
+            { x: -500, z: 600 },
+            { x: 450, z: 800 },
+            { x: -700, z: -1200 },
+            { x: 650, z: -1000 },
+            { x: -250, z: 1200 }
+        ];
+
+        const cowsPerHerd = 8;
+
+        herdCenters.forEach(center => {
+            for (let i = 0; i < cowsPerHerd; i++) {
+                const offsetX = (Math.random() - 0.5) * 120;
+                const offsetZ = (Math.random() - 0.5) * 120;
+                const x = center.x + offsetX;
+                const z = center.z + offsetZ;
+
+                // Stay clear of main runway strip
+                if (Math.abs(x) < 70 && Math.abs(z) < 1550) continue;
+
+                const y = this.getProceduralHeight(x, z);
+                if (y > 150) continue; // Only place in low grass fields
+
+                const cow = this.createCowModel();
+                cow.position.set(x, y, z);
+                cow.rotation.y = Math.random() * Math.PI * 2;
+
+                const scale = 0.85 + Math.random() * 0.3;
+                cow.scale.set(scale, scale, scale);
+
+                cowGroup.add(cow);
+            }
+        });
+
+        this.scene.add(cowGroup);
+    }
+
+    createCowModel() {
+        const cow = new THREE.Group();
+
+        const whiteSkin = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.8 });
+        const blackPatch = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.8 });
+        const pinkSnout = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.6 });
+        const hornMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.5 });
+        const hoofMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+
+        // 1. Main Body
+        const bodyGeo = new THREE.BoxGeometry(1.4, 1.1, 2.2);
+        const body = new THREE.Mesh(bodyGeo, whiteSkin);
+        body.position.set(0, 1.1, 0);
+        body.castShadow = true;
+        cow.add(body);
+
+        // 2. Black Patches (Spots)
+        const patchGeo1 = new THREE.BoxGeometry(1.42, 0.6, 0.8);
+        const patch1 = new THREE.Mesh(patchGeo1, blackPatch);
+        patch1.position.set(0, 1.25, -0.3);
+        cow.add(patch1);
+
+        const patchGeo2 = new THREE.BoxGeometry(0.8, 0.7, 0.7);
+        const patch2 = new THREE.Mesh(patchGeo2, blackPatch);
+        patch2.position.set(0.35, 1.05, 0.5);
+        cow.add(patch2);
+
+        // 3. Udder
+        const udderGeo = new THREE.BoxGeometry(0.5, 0.3, 0.5);
+        const udder = new THREE.Mesh(udderGeo, pinkSnout);
+        udder.position.set(0, 0.45, 0.3);
+        cow.add(udder);
+
+        // 4. Head & Neck
+        const headGeo = new THREE.BoxGeometry(0.65, 0.65, 0.75);
+        const head = new THREE.Mesh(headGeo, whiteSkin);
+        head.position.set(0, 1.55, -1.3);
+        head.castShadow = true;
+        cow.add(head);
+
+        // Head Patch
+        const headPatchGeo = new THREE.BoxGeometry(0.67, 0.4, 0.4);
+        const headPatch = new THREE.Mesh(headPatchGeo, blackPatch);
+        headPatch.position.set(0, 1.68, -1.35);
+        cow.add(headPatch);
+
+        // Snout / Muzzle
+        const snoutGeo = new THREE.BoxGeometry(0.55, 0.38, 0.4);
+        const snout = new THREE.Mesh(snoutGeo, pinkSnout);
+        snout.position.set(0, 1.4, -1.7);
+        cow.add(snout);
+
+        // Nostrils
+        const nostrilGeo = new THREE.BoxGeometry(0.1, 0.08, 0.05);
+        const nostrilLeft = new THREE.Mesh(nostrilGeo, blackPatch);
+        nostrilLeft.position.set(-0.15, 1.42, -1.91);
+        const nostrilRight = new THREE.Mesh(nostrilGeo, blackPatch);
+        nostrilRight.position.set(0.15, 1.42, -1.91);
+        cow.add(nostrilLeft);
+        cow.add(nostrilRight);
+
+        // Horns
+        const hornGeo = new THREE.ConeGeometry(0.06, 0.3, 5);
+        hornGeo.rotateX(-Math.PI / 6);
+        const hornLeft = new THREE.Mesh(hornGeo, hornMat);
+        hornLeft.position.set(-0.3, 1.95, -1.25);
+        const hornRight = new THREE.Mesh(hornGeo, hornMat);
+        hornRight.position.set(0.3, 1.95, -1.25);
+        cow.add(hornLeft);
+        cow.add(hornRight);
+
+        // Ears
+        const earGeo = new THREE.BoxGeometry(0.35, 0.1, 0.15);
+        const earLeft = new THREE.Mesh(earGeo, whiteSkin);
+        earLeft.position.set(-0.45, 1.7, -1.25);
+        earLeft.rotation.z = -Math.PI / 12;
+        const earRight = new THREE.Mesh(earGeo, whiteSkin);
+        earRight.position.set(0.45, 1.7, -1.25);
+        earRight.rotation.z = Math.PI / 12;
+        cow.add(earLeft);
+        cow.add(earRight);
+
+        // 5. 4 Legs & Hooves
+        const legGeo = new THREE.BoxGeometry(0.22, 0.7, 0.22);
+        const hoofGeo = new THREE.BoxGeometry(0.24, 0.15, 0.24);
+
+        const legPositions = [
+            { x: -0.5, z: -0.7 },
+            { x: 0.5, z: -0.7 },
+            { x: -0.5, z: 0.7 },
+            { x: 0.5, z: 0.7 }
+        ];
+
+        legPositions.forEach(pos => {
+            const leg = new THREE.Mesh(legGeo, whiteSkin);
+            leg.position.set(pos.x, 0.45, pos.z);
+            leg.castShadow = true;
+            cow.add(leg);
+
+            const hoof = new THREE.Mesh(hoofGeo, hoofMat);
+            hoof.position.set(pos.x, 0.08, pos.z);
+            cow.add(hoof);
+        });
+
+        // 6. Tail
+        const tailGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.8);
+        const tail = new THREE.Mesh(tailGeo, whiteSkin);
+        tail.position.set(0, 0.9, 1.15);
+        tail.rotation.x = Math.PI / 8;
+        cow.add(tail);
+
+        const tuftGeo = new THREE.SphereGeometry(0.07, 6, 6);
+        const tuft = new THREE.Mesh(tuftGeo, blackPatch);
+        tuft.position.set(0, 0.5, 1.3);
+        cow.add(tuft);
+
+        return cow;
     }
 
     update(dt) {
