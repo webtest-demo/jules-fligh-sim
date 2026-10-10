@@ -185,6 +185,18 @@ export class FlightPhysics {
         this.worldVelocity.y += ay * dt;
         this.worldVelocity.z += az * dt;
 
+        // Aerodynamic Velocity Coupling: Redirect velocity vector towards nose forward vector based on speed
+        if (speed > 1.0) {
+            const redirectRate = this.isGrounded ? Math.min(1.0, dt * 12.0) : Math.min(1.0, dt * 6.0);
+            const targetVelX = fwdX * speed;
+            const targetVelY = fwdY * speed;
+            const targetVelZ = fwdZ * speed;
+
+            this.worldVelocity.x += (targetVelX - this.worldVelocity.x) * redirectRate;
+            this.worldVelocity.y += (targetVelY - this.worldVelocity.y) * redirectRate;
+            this.worldVelocity.z += (targetVelZ - this.worldVelocity.z) * redirectRate;
+        }
+
         const prevPos = { x: this.position.x, y: this.position.y, z: this.position.z };
         const stepDisp = {
             x: this.worldVelocity.x * dt,
