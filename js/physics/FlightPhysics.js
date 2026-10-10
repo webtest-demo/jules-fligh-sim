@@ -150,15 +150,15 @@ export class FlightPhysics {
         const cosR = Math.cos(this.roll);
         const sinR = Math.sin(this.roll);
 
-        // Forward unit vector (World space)
-        const fwdX = -sinH * cosP;
+        // Forward unit vector (World space where heading 0 = -Z, +heading = clockwise/East = +X)
+        const fwdX = sinH * cosP;
         const fwdY = sinP;
         const fwdZ = -cosH * cosP;
 
         // Up unit vector (World space)
-        const upX = sinH * sinP * cosR + cosH * sinR;
+        const upX = -sinH * sinP * cosR + cosH * sinR;
         const upY = cosP * cosR;
-        const upZ = cosH * sinP * cosR - sinH * sinR;
+        const upZ = cosH * sinP * cosR + sinH * sinR;
 
         // Velocity unit vector (or forward if zero)
         let velX = speed > 0.1 ? this.worldVelocity.x / speed : fwdX;
@@ -300,30 +300,30 @@ export class FlightPhysics {
         // Dynamic control effectiveness with minimum baseline authority even at low speed / prop wash
         const controlQ = Math.max(0.6, Math.min(2.5, dynamicPressure / 200.0));
 
-        // Pitch, Roll, Yaw Torques / Target Rates
+        // Pitch, Roll, Yaw Torques / Target Rates (Positive controls.yaw = Right Rudder = Positive Yaw Rate / Heading Increase)
         const targetPitchRate = effectivePitchInput * this.elevatorAuthority * controlQ;
         let targetRollRate = this.controls.roll * this.aileronAuthority * controlQ;
-        let targetYawRate = -this.controls.yaw * this.rudderAuthority * controlQ;
+        let targetYawRate = this.controls.yaw * this.rudderAuthority * controlQ;
 
-        // Coordinated turn mechanics (Banking causes turn rate via horizontal lift component: Turn Rate = g * tan(bank) / V)
+        // Coordinated turn mechanics (Banking right (positive roll) causes right turn rate (+yaw))
         if (!this.isGrounded && speed > 5.0) {
             const bankTurnRate = (this.gravity * Math.tan(this.roll)) / speed;
-            targetYawRate -= bankTurnRate;
+            targetYawRate += bankTurnRate;
 
-            // Sideslip weathercock directional stability (nose naturally aligns with velocity vector)
+            // Sideslip weathercock directional stability (nose naturally aligns with world velocity vector)
             const horizontalVelocitySpeed = Math.sqrt(this.worldVelocity.x * this.worldVelocity.x + this.worldVelocity.z * this.worldVelocity.z);
             if (horizontalVelocitySpeed > 2.0) {
-                const velHeading = Math.atan2(-this.worldVelocity.x, -this.worldVelocity.z);
+                const velHeading = Math.atan2(this.worldVelocity.x, -this.worldVelocity.z);
                 let headingError = velHeading - this.heading;
                 while (headingError > Math.PI) headingError -= Math.PI * 2;
                 while (headingError < -Math.PI) headingError += Math.PI * 2;
-                targetYawRate += headingError * 0.8;
+                targetYawRate += headingError * 1.5;
             }
         }
 
         // Ground steering via rudder when grounded
         if (this.isGrounded) {
-            targetYawRate += -this.controls.yaw * 0.05 * (speed / 10);
+            targetYawRate += this.controls.yaw * 0.05 * (speed / 10);
             targetRollRate *= 0.1; // Resistance to roll on ground
         }
 

@@ -32,17 +32,26 @@ function runPhysicsTests() {
     physics.update(0.05);
     console.log(`Flaps deployed, AoA: ${physics.aoaDeg.toFixed(1)}°`);
 
-    // Test 5: Banking turn test
+    // Test 5: Rudder & Banking turn directional alignment
     physics.resetState(false); // Airborne at 100 kts
-    physics.roll = 0.5; // Banked right ~28 degrees
+    physics.controls.yaw = 1.0; // Right rudder (E key)
     const initHeading = physics.heading;
     for (let i = 0; i < 20; i++) {
         physics.update(0.05);
     }
-    console.log(`Banked 28° turn heading delta: ${(physics.heading - initHeading).toFixed(3)} rad`);
-    console.assert(Math.abs(physics.heading - initHeading) > 0.05, "Banking should turn heading smoothly");
+    console.log(`Right Rudder (E key) heading delta: ${(physics.heading - initHeading).toFixed(3)} rad`);
+    console.assert(physics.heading > initHeading, "Right rudder MUST turn heading to the right (+yaw)");
 
-    // Test 6: Mountain Collision Detection
+    // Test 6: Velocity follows nose direction
+    physics.controls.yaw = 0.0;
+    for (let i = 0; i < 40; i++) {
+        physics.update(0.05);
+    }
+    const currentVelHeading = Math.atan2(physics.worldVelocity.x, -physics.worldVelocity.z);
+    console.log(`Heading: ${physics.heading.toFixed(3)}, Velocity Heading: ${currentVelHeading.toFixed(3)}`);
+    console.assert(Math.abs(physics.heading - currentVelHeading) < 0.1, "Velocity vector MUST follow nose direction");
+
+    // Test 7: Mountain Collision Detection
     physics.resetState(false);
     // Place aircraft heading straight into mountain at (x: 2000, y: 150, z: 2000)
     // Mock terrain function with mountain peak height = 300m
