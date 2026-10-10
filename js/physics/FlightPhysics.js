@@ -180,65 +180,116 @@ export class FlightPhysics {
         const ay = totalFy / this.mass;
         const az = totalFz / this.mass;
 
-        // Integrate World Velocity & Position
+        // Integrated World Velocity
         this.worldVelocity.x += ax * dt;
         this.worldVelocity.y += ay * dt;
         this.worldVelocity.z += az * dt;
 
-        this.position.x += this.worldVelocity.x * dt;
-        this.position.y += this.worldVelocity.y * dt;
-        this.position.z += this.worldVelocity.z * dt;
+        const prevPos = { x: this.position.x, y: this.position.y, z: this.position.z };
+        const stepDisp = {
+            x: this.worldVelocity.x * dt,
+            y: this.worldVelocity.y * dt,
+            z: this.worldVelocity.z * dt
+        };
+        const stepDist = Math.sqrt(stepDisp.x * stepDisp.x + stepDisp.y * stepDisp.y + stepDisp.z * stepDisp.z);
 
-        // 5. Ground Physics, Terrain Collision & Crash Engine
-        let terrainY = 0;
-        if (getTerrainHeight) {
-            terrainY = getTerrainHeight(this.position.x, this.position.z);
-        }
-        const gearHeight = 1.8;
-        const groundLevel = terrainY + gearHeight;
+        // Sub-stepping for continuous terrain collision detection across entire aircraft geometry
+        const numSubSteps = Math.max(1, Math.ceil(stepDist / 1.5));
 
-        if (this.position.y <= groundLevel) {
-            const verticalImpactSpeed = Math.abs(this.worldVelocity.y);
-            const pitchDeg = Math.abs(this.pitch * 180 / Math.PI);
-            const rollDeg = Math.abs(this.roll * 180 / Math.PI);
+        // Right unit vector for wingtips
+        const rightX = fwdY * upZ - fwdZ * upY;
+        const rightY = fwdZ * upX - fwdX * upZ;
+        const rightZ = fwdX * upY - fwdY * upX;
 
-            // Crash conditions: high vertical speed on impact, inverted/steep roll/pitch, or mountain terrain collision
-            if (terrainY > 15 || verticalImpactSpeed > 8.0 || pitchDeg > 25 || rollDeg > 30) {
-                this.isCrashed = true;
-                if (terrainY > 15) {
-                    this.crashReason = 'Collided with mountain terrain!';
-                } else if (verticalImpactSpeed > 8.0) {
-                    this.crashReason = 'Hard landing / impact speed too high!';
-                } else {
-                    this.crashReason = 'Aircraft crashed due to severe pitch/roll attitude!';
+        // Aircraft boundary probe offsets relative to center
+        const probeOffsets = [
+            { x: 0, y: -0.8, z: 0 },                                           // Center bottom / fuselage
+            { x: fwdX * 4.0, y: fwdY * 4.0, z: fwdZ * 4.0 },                   // Nose
+            { x: -fwdX * 4.0, y: -fwdY * 4.0, z: -fwdZ * 4.0 },                 // Tail
+            { x: -rightX * 5.5, y: -rightY * 5.5, z: -rightZ * 5.5 },          // Left wingtip
+            { x: rightX * 5.5, y: rightY * 5.5, z: rightZ * 5.5 },             // Right wingtip
+            { x: -upX * 1.5, y: -upY * 1.5, z: -upZ * 1.5 }                     // Landing gear
+        ];
+
+        let hasCollided = false;
+        let finalPos = { ...prevPos };
+
+        for (let s = 1; s <= numSubSteps; s++) {
+            const frac = s / numSubSteps;
+            const subPos = {
+                x: prevPos.x + stepDisp.x * frac,
+                y: prevPos.y + stepDisp.y * frac,
+                z: prevPos.z + stepDisp.z * frac
+            };
+
+            for (const probe of probeOffsets) {
+                const px = subPos.x + probe.x;
+                const py = subPos.y + probe.y;
+                const pz = subPos.z + probe.z;
+
+                const probeTerrainY = getTerrainHeight ? getTerrainHeight(px, pz) : 0;
+
+                if (py <= probeTerrainY + 0.2) {
+                    hasCollided = true;
+                    finalPos = subPos;
+
+                    const verticalImpactSpeed = Math.abs(this.worldVelocity.y);
+                    const pitchDeg = Math.abs(this.pitch * 180 / Math.PI);
+                    const rollDeg = Math.abs(this.roll * 180 / Math.PI);
+
+                    // Check if landing or crashing
+                    if (probeTerrainY > 5.0 || verticalImpactSpeed > 7.0 || pitchDeg > 22 || rollDeg > 25 || probe !== probeOffsets[5]) {
+                        this.isCrashed = true;
+                        if (probeTerrainY > 5.0) {
+                            this.crashReason = 'Collided with mountain terrain!';
+                        } else if (verticalImpactSpeed > 7.0) {
+                            this.crashReason = 'Hard landing / impact speed too high!';
+                        } else if (probe !== probeOffsets[5]) {
+                            this.crashReason = 'Wing / Nose strike on ground!';
+                        } else {
+                            this.crashReason = 'Aircraft crashed due to unsafe pitch/roll attitude!';
+                        }
+                        this.position = finalPos;
+                        this.worldVelocity = { x: 0, y: 0, z: 0 };
+                        return;
+                    } else {
+                        // Safe touchdown on runway / flat terrain
+                        this.isGrounded = true;
+                        const gearHeight = 1.8;
+                        this.position.x = subPos.x;
+                        this.position.y = probeTerrainY + gearHeight;
+                        this.position.z = subPos.z;
+
+                        if (totalFy < 0) totalFy = 0;
+                        if (this.worldVelocity.y < 0) this.worldVelocity.y = 0;
+
+                        const frictionCoeff = this.controls.brakes ? 0.45 : 0.02;
+                        const normalForce = this.mass * this.gravity;
+                        const frictionForce = normalForce * frictionCoeff;
+
+                        if (speed > 0.1) {
+                            this.worldVelocity.x *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
+                            this.worldVelocity.z *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
+                        }
+
+                        if (speed < 20) {
+                            this.pitch *= 0.90;
+                            this.roll *= 0.90;
+                        }
+                        break;
+                    }
                 }
-                this.worldVelocity = { x: 0, y: 0, z: 0 };
-                return;
             }
 
-            this.isGrounded = true;
-            this.position.y = groundLevel;
+            if (hasCollided) break;
+        }
 
-            // Ground normal force (cancels downward vertical force if on ground)
-            if (totalFy < 0) totalFy = 0;
-            if (this.worldVelocity.y < 0) this.worldVelocity.y = 0;
-
-            // Ground friction & braking
-            const frictionCoeff = this.controls.brakes ? 0.45 : 0.02;
-            const normalForce = this.mass * this.gravity;
-            const frictionForce = normalForce * frictionCoeff;
-
-            if (speed > 0.1) {
-                this.worldVelocity.x *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
-                this.worldVelocity.z *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
-            }
-
-            // Level pitch/roll gradually when firmly grounded at low speeds
-            if (speed < 20) {
-                this.pitch *= 0.90;
-                this.roll *= 0.90;
-            }
-        } else {
+        if (!hasCollided) {
+            this.position = {
+                x: prevPos.x + stepDisp.x,
+                y: prevPos.y + stepDisp.y,
+                z: prevPos.z + stepDisp.z
+            };
             this.isGrounded = false;
         }
 

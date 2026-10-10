@@ -142,20 +142,8 @@ export class WorldEnvironment {
 
         for (let i = 0; i < posAttr.count; i++) {
             vertex.fromBufferAttribute(posAttr, i);
-
-            // Keep airport valley flat around origin (z: -1500 to +1500, x: -600 to +600)
-            const distFromRunwayX = Math.abs(vertex.x);
-            const distFromRunwayZ = Math.abs(vertex.z);
-
-            if (distFromRunwayX < 600 && distFromRunwayZ < 1800) {
-                // Smooth transition to flat runway valley
-                const flatFactor = Math.min(1.0, Math.max(0.0, (distFromRunwayX - 250) / 350));
-                let height = this.getProceduralHeight(vertex.x, vertex.z) * flatFactor;
-                posAttr.setY(i, height);
-            } else {
-                let height = this.getProceduralHeight(vertex.x, vertex.z);
-                posAttr.setY(i, height);
-            }
+            const height = this.getProceduralHeight(vertex.x, vertex.z);
+            posAttr.setY(i, height);
         }
 
         terrainGeo.computeVertexNormals();

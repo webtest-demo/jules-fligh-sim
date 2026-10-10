@@ -32,6 +32,18 @@ function runPhysicsTests() {
     physics.update(0.05);
     console.log(`Flaps deployed, AoA: ${physics.aoaDeg.toFixed(1)}°`);
 
+    // Test 5: Mountain Collision Detection
+    physics.resetState(false);
+    // Place aircraft heading straight into mountain at (x: 2000, y: 150, z: 2000)
+    // Mock terrain function with mountain peak height = 300m
+    const mockTerrain = (x, z) => (x > 1000 && z > 1000) ? 300 : 0;
+    physics.position = { x: 1980, y: 150, z: 2000 };
+    physics.worldVelocity = { x: 200, y: 0, z: 0 }; // 200 m/s moving towards mountain
+
+    physics.update(0.05, mockTerrain);
+    console.assert(physics.isCrashed === true, "Aircraft should crash when entering mountain terrain");
+    console.log(`Mountain crash test passed. Reason: "${physics.crashReason}"`);
+
     console.log("All Flight Physics Tests Passed Successfully!");
 }
 

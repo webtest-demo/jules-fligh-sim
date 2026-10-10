@@ -132,13 +132,13 @@ class FlightSimulatorApp {
         const crashOverlay = document.getElementById('crash-overlay');
         const crashReasonEl = document.getElementById('crash-reason');
         if (this.physics.isCrashed) {
-            if (crashOverlay && crashOverlay.style.display !== 'flex') {
-                crashOverlay.style.display = 'flex';
+            if (crashOverlay && crashOverlay.classList.contains('hidden')) {
+                crashOverlay.classList.remove('hidden');
                 if (crashReasonEl) crashReasonEl.textContent = this.physics.crashReason;
             }
         } else {
-            if (crashOverlay && crashOverlay.style.display !== 'none') {
-                crashOverlay.style.display = 'none';
+            if (crashOverlay && !crashOverlay.classList.contains('hidden')) {
+                crashOverlay.classList.add('hidden');
             }
         }
 
