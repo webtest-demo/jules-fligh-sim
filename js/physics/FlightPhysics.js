@@ -25,12 +25,12 @@ export class FlightPhysics {
         this.oswaldEfficiency = 0.80; // Oswald efficiency factor for induced drag
 
         // Control Surface Efficiency Factors
-        this.elevatorAuthority = 0.035;
-        this.aileronAuthority = 0.040;
-        this.rudderAuthority = 0.025;
-        this.pitchDamping = 2.5;
-        this.rollDamping = 3.5;
-        this.yawDamping = 2.0;
+        this.elevatorAuthority = 0.17; // 2x increased control responsiveness
+        this.aileronAuthority = 0.13;
+        this.rudderAuthority = 0.09;
+        this.pitchDamping = 1.8;
+        this.rollDamping = 2.5;
+        this.yawDamping = 1.8;
 
         // Initial State
         this.resetState();
@@ -69,10 +69,14 @@ export class FlightPhysics {
         this.aoaDeg = 0;
         this.isStalling = false;
         this.isGrounded = onRunway;
+        this.isCrashed = false;
+        this.crashReason = '';
         this.engineRPM = onRunway ? this.idleRPM : 2300;
     }
 
-    update(dt) {
+    update(dt, getTerrainHeight = null) {
+        if (this.isCrashed) return; // Stop simulation on crash
+
         if (dt > 0.1) dt = 0.1; // Cap delta time for stability
 
         // Calculate current air density based on altitude (barometric formula approximation)
@@ -97,18 +101,18 @@ export class FlightPhysics {
         }
         this.aoaDeg = ((this.pitch - flightPathPitch) * 180 / Math.PI);
 
-        // 2. Engine Thrust Calculation
+        // 2. Engine Thrust Calculation - Fast spool and boosted takeoff acceleration
         const targetRPM = this.idleRPM + this.controls.throttle * (this.maxRPM - this.idleRPM);
-        this.engineRPM += (targetRPM - this.engineRPM) * Math.min(1, dt * 3.0);
+        this.engineRPM += (targetRPM - this.engineRPM) * Math.min(1, dt * 6.0);
 
-        // Thrust = Power / Speed (with low-speed static thrust limit)
+        // Thrust = Power / Speed (with boosted low-speed static thrust)
         const currentPowerW = (this.engineRPM / this.maxRPM) * (this.maxPowerKW * 1000) * this.propellerEfficiency;
-        const effectiveSpeed = Math.max(15, speed);
-        let thrustForce = currentPowerW / effectiveSpeed; // Newtons
+        const effectiveSpeed = Math.max(10, speed);
+        let thrustForce = (currentPowerW / effectiveSpeed) * 1.6; // Increased general thrust baseline
 
-        // Static thrust boost at low speed (takeoff roll)
-        if (speed < 15) {
-            thrustForce = (currentPowerW / 15) * (1.2 - 0.2 * (speed / 15));
+        // Static thrust boost at low speed for rapid acceleration
+        if (speed < 25) {
+            thrustForce *= (2.2 - 1.0 * (speed / 25));
         }
 
         // 3. Lift & Drag Coefficients
@@ -146,15 +150,15 @@ export class FlightPhysics {
         const cosR = Math.cos(this.roll);
         const sinR = Math.sin(this.roll);
 
-        // Forward unit vector (World space)
-        const fwdX = -sinH * cosP;
+        // Forward unit vector (World space where heading 0 = -Z, +heading = clockwise/East = +X)
+        const fwdX = sinH * cosP;
         const fwdY = sinP;
         const fwdZ = -cosH * cosP;
 
         // Up unit vector (World space)
-        const upX = sinH * sinP * cosR + cosH * sinR;
+        const upX = -sinH * sinP * cosR + cosH * sinR;
         const upY = cosP * cosR;
-        const upZ = cosH * sinP * cosR - sinH * sinR;
+        const upZ = cosH * sinP * cosR + sinH * sinR;
 
         // Velocity unit vector (or forward if zero)
         let velX = speed > 0.1 ? this.worldVelocity.x / speed : fwdX;
@@ -171,64 +175,167 @@ export class FlightPhysics {
         totalFy += upY * liftForce;
         totalFz += upZ * liftForce;
 
-        // 5. Ground Physics & Collision (Landing Gear Ground Plane y = 1.8)
-        const minHeight = 1.8;
-        if (this.position.y <= minHeight) {
-            this.isGrounded = true;
-            this.position.y = minHeight;
-
-            // Ground normal force (cancels downward vertical force if on ground)
-            if (totalFy < 0) totalFy = 0;
-            if (this.worldVelocity.y < 0) this.worldVelocity.y = 0;
-
-            // Ground friction & braking
-            const frictionCoeff = this.controls.brakes ? 0.35 : 0.03;
-            const normalForce = this.mass * this.gravity;
-            const frictionForce = normalForce * frictionCoeff;
-
-            if (speed > 0.1) {
-                totalFx -= velX * frictionForce;
-                totalFz -= velZ * frictionForce;
-            }
-
-            // Level pitch/roll gradually when firmly grounded at low speeds
-            if (speed < 20) {
-                this.pitch *= 0.92;
-                this.roll *= 0.92;
-            }
-        } else {
-            this.isGrounded = false;
-        }
-
         // Linear Acceleration (a = F/m)
         const ax = totalFx / this.mass;
         const ay = totalFy / this.mass;
         const az = totalFz / this.mass;
 
-        // Integrate World Velocity & Position
+        // Integrated World Velocity
         this.worldVelocity.x += ax * dt;
         this.worldVelocity.y += ay * dt;
         this.worldVelocity.z += az * dt;
 
-        this.position.x += this.worldVelocity.x * dt;
-        this.position.y += this.worldVelocity.y * dt;
-        this.position.z += this.worldVelocity.z * dt;
+        // Aerodynamic Velocity Coupling: Redirect velocity vector towards nose forward vector based on speed
+        if (speed > 1.0) {
+            const redirectRate = this.isGrounded ? Math.min(1.0, dt * 12.0) : Math.min(1.0, dt * 6.0);
+            const targetVelX = fwdX * speed;
+            const targetVelY = fwdY * speed;
+            const targetVelZ = fwdZ * speed;
+
+            this.worldVelocity.x += (targetVelX - this.worldVelocity.x) * redirectRate;
+            this.worldVelocity.y += (targetVelY - this.worldVelocity.y) * redirectRate;
+            this.worldVelocity.z += (targetVelZ - this.worldVelocity.z) * redirectRate;
+        }
+
+        const prevPos = { x: this.position.x, y: this.position.y, z: this.position.z };
+        const stepDisp = {
+            x: this.worldVelocity.x * dt,
+            y: this.worldVelocity.y * dt,
+            z: this.worldVelocity.z * dt
+        };
+        const stepDist = Math.sqrt(stepDisp.x * stepDisp.x + stepDisp.y * stepDisp.y + stepDisp.z * stepDisp.z);
+
+        // Sub-stepping for continuous terrain collision detection across entire aircraft geometry
+        const numSubSteps = Math.max(1, Math.ceil(stepDist / 1.5));
+
+        // Right unit vector for wingtips
+        const rightX = fwdY * upZ - fwdZ * upY;
+        const rightY = fwdZ * upX - fwdX * upZ;
+        const rightZ = fwdX * upY - fwdY * upX;
+
+        // Aircraft boundary probe offsets relative to center
+        const probeOffsets = [
+            { x: 0, y: -0.8, z: 0 },                                           // Center bottom / fuselage
+            { x: fwdX * 4.0, y: fwdY * 4.0, z: fwdZ * 4.0 },                   // Nose
+            { x: -fwdX * 4.0, y: -fwdY * 4.0, z: -fwdZ * 4.0 },                 // Tail
+            { x: -rightX * 5.5, y: -rightY * 5.5, z: -rightZ * 5.5 },          // Left wingtip
+            { x: rightX * 5.5, y: rightY * 5.5, z: rightZ * 5.5 },             // Right wingtip
+            { x: -upX * 1.5, y: -upY * 1.5, z: -upZ * 1.5 }                     // Landing gear
+        ];
+
+        let hasCollided = false;
+        let finalPos = { ...prevPos };
+
+        for (let s = 1; s <= numSubSteps; s++) {
+            const frac = s / numSubSteps;
+            const subPos = {
+                x: prevPos.x + stepDisp.x * frac,
+                y: prevPos.y + stepDisp.y * frac,
+                z: prevPos.z + stepDisp.z * frac
+            };
+
+            for (const probe of probeOffsets) {
+                const px = subPos.x + probe.x;
+                const py = subPos.y + probe.y;
+                const pz = subPos.z + probe.z;
+
+                const probeTerrainY = getTerrainHeight ? getTerrainHeight(px, pz) : 0;
+
+                if (py <= probeTerrainY + 0.2) {
+                    hasCollided = true;
+                    finalPos = subPos;
+
+                    const verticalImpactSpeed = Math.abs(this.worldVelocity.y);
+                    const pitchDeg = Math.abs(this.pitch * 180 / Math.PI);
+                    const rollDeg = Math.abs(this.roll * 180 / Math.PI);
+
+                    // Check if landing or crashing
+                    if (probeTerrainY > 5.0 || verticalImpactSpeed > 7.0 || pitchDeg > 22 || rollDeg > 25 || probe !== probeOffsets[5]) {
+                        this.isCrashed = true;
+                        if (probeTerrainY > 5.0) {
+                            this.crashReason = 'Collided with mountain terrain!';
+                        } else if (verticalImpactSpeed > 7.0) {
+                            this.crashReason = 'Hard landing / impact speed too high!';
+                        } else if (probe !== probeOffsets[5]) {
+                            this.crashReason = 'Wing / Nose strike on ground!';
+                        } else {
+                            this.crashReason = 'Aircraft crashed due to unsafe pitch/roll attitude!';
+                        }
+                        this.position = finalPos;
+                        this.worldVelocity = { x: 0, y: 0, z: 0 };
+                        return;
+                    } else {
+                        // Safe touchdown on runway / flat terrain
+                        this.isGrounded = true;
+                        const gearHeight = 1.8;
+                        this.position.x = subPos.x;
+                        this.position.y = probeTerrainY + gearHeight;
+                        this.position.z = subPos.z;
+
+                        if (totalFy < 0) totalFy = 0;
+                        if (this.worldVelocity.y < 0) this.worldVelocity.y = 0;
+
+                        const frictionCoeff = this.controls.brakes ? 0.45 : 0.02;
+                        const normalForce = this.mass * this.gravity;
+                        const frictionForce = normalForce * frictionCoeff;
+
+                        if (speed > 0.1) {
+                            this.worldVelocity.x *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
+                            this.worldVelocity.z *= Math.max(0, 1 - (frictionForce / (this.mass * speed)) * dt);
+                        }
+
+                        if (speed < 20) {
+                            this.pitch *= 0.90;
+                            this.roll *= 0.90;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            if (hasCollided) break;
+        }
+
+        if (!hasCollided) {
+            this.position = {
+                x: prevPos.x + stepDisp.x,
+                y: prevPos.y + stepDisp.y,
+                z: prevPos.z + stepDisp.z
+            };
+            this.isGrounded = false;
+        }
 
         // 6. Rotational Dynamics & Control Surface Moments
         // Control Inputs + Trim
         const effectivePitchInput = this.controls.pitch + (this.controls.trim * 0.3);
 
-        // Control effectiveness increases with dynamic pressure (speed sq)
-        const controlQ = Math.min(1.5, dynamicPressure / 500.0);
+        // Dynamic control effectiveness with minimum baseline authority even at low speed / prop wash
+        const controlQ = Math.max(0.6, Math.min(2.5, dynamicPressure / 200.0));
 
-        // Pitch, Roll, Yaw Torques / Target Rates
+        // Pitch, Roll, Yaw Torques / Target Rates (Positive controls.yaw = Right Rudder = Positive Yaw Rate / Heading Increase)
         const targetPitchRate = effectivePitchInput * this.elevatorAuthority * controlQ;
         let targetRollRate = this.controls.roll * this.aileronAuthority * controlQ;
-        let targetYawRate = -this.controls.yaw * this.rudderAuthority * controlQ;
+        let targetYawRate = this.controls.yaw * this.rudderAuthority * controlQ;
+
+        // Coordinated turn mechanics (Banking right (positive roll) causes right turn rate (+yaw))
+        if (!this.isGrounded && speed > 5.0) {
+            const bankTurnRate = (this.gravity * Math.tan(this.roll)) / speed;
+            targetYawRate += bankTurnRate;
+
+            // Sideslip weathercock directional stability (nose naturally aligns with world velocity vector)
+            const horizontalVelocitySpeed = Math.sqrt(this.worldVelocity.x * this.worldVelocity.x + this.worldVelocity.z * this.worldVelocity.z);
+            if (horizontalVelocitySpeed > 2.0) {
+                const velHeading = Math.atan2(this.worldVelocity.x, -this.worldVelocity.z);
+                let headingError = velHeading - this.heading;
+                while (headingError > Math.PI) headingError -= Math.PI * 2;
+                while (headingError < -Math.PI) headingError += Math.PI * 2;
+                targetYawRate += headingError * 1.5;
+            }
+        }
 
         // Ground steering via rudder when grounded
         if (this.isGrounded) {
-            targetYawRate += -this.controls.yaw * 0.02 * (speed / 10);
+            targetYawRate += this.controls.yaw * 0.05 * (speed / 10);
             targetRollRate *= 0.1; // Resistance to roll on ground
         }
 
@@ -237,8 +344,9 @@ export class FlightPhysics {
         this.rollRate += (targetRollRate - this.rollRate * this.rollDamping) * dt * 10;
         this.yawRate += (targetYawRate - this.yawRate * this.yawDamping) * dt * 10;
 
-        // Integrate Rotations
-        this.pitch += this.pitchRate * dt;
+        // Integrate Rotations with 85-degree pitch limits (prevent gimbal locks while allowing full climbs/descents)
+        const maxPitch = (85 * Math.PI) / 180;
+        this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch + this.pitchRate * dt));
         this.roll += this.rollRate * dt;
         this.heading += this.yawRate * dt;
 

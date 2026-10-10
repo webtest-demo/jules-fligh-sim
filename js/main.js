@@ -20,6 +20,8 @@ class FlightSimulatorApp {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.container.appendChild(this.renderer.domElement);
 
+        window.app = this;
+
         // Simulation Modules
         this.physics = new FlightPhysics();
         this.aircraft = new AircraftModel();
@@ -68,29 +70,29 @@ class FlightSimulatorApp {
     }
 
     processInputs(dt) {
-        // Pitch Control (W / S)
+        // Pitch Control (W / S) - 2x faster rate
         if (this.keys['KeyW']) {
-            this.physics.controls.pitch = Math.max(-1.0, this.physics.controls.pitch - dt * 3.0);
+            this.physics.controls.pitch = Math.max(-1.0, this.physics.controls.pitch - dt * 6.0);
         } else if (this.keys['KeyS']) {
-            this.physics.controls.pitch = Math.min(1.0, this.physics.controls.pitch + dt * 3.0);
+            this.physics.controls.pitch = Math.min(1.0, this.physics.controls.pitch + dt * 6.0);
         } else {
             this.physics.controls.pitch *= 0.82; // Return to center
         }
 
-        // Roll Control (A / D)
+        // Roll Control (A / D) - 2x faster rate
         if (this.keys['KeyA']) {
-            this.physics.controls.roll = Math.max(-1.0, this.physics.controls.roll - dt * 3.0);
+            this.physics.controls.roll = Math.max(-1.0, this.physics.controls.roll - dt * 6.0);
         } else if (this.keys['KeyD']) {
-            this.physics.controls.roll = Math.min(1.0, this.physics.controls.roll + dt * 3.0);
+            this.physics.controls.roll = Math.min(1.0, this.physics.controls.roll + dt * 6.0);
         } else {
             this.physics.controls.roll *= 0.82;
         }
 
-        // Yaw Control (Q / E)
+        // Yaw Control (Q / E) - 2x faster rate
         if (this.keys['KeyQ']) {
-            this.physics.controls.yaw = Math.max(-1.0, this.physics.controls.yaw - dt * 3.0);
+            this.physics.controls.yaw = Math.max(-1.0, this.physics.controls.yaw - dt * 6.0);
         } else if (this.keys['KeyE']) {
-            this.physics.controls.yaw = Math.min(1.0, this.physics.controls.yaw + dt * 3.0);
+            this.physics.controls.yaw = Math.min(1.0, this.physics.controls.yaw + dt * 6.0);
         } else {
             this.physics.controls.yaw *= 0.82;
         }
@@ -126,11 +128,25 @@ class FlightSimulatorApp {
 
         const dt = this.clock.getDelta();
 
+        // Handle Crash UI Overlay
+        const crashOverlay = document.getElementById('crash-overlay');
+        const crashReasonEl = document.getElementById('crash-reason');
+        if (this.physics.isCrashed) {
+            if (crashOverlay && crashOverlay.classList.contains('hidden')) {
+                crashOverlay.classList.remove('hidden');
+                if (crashReasonEl) crashReasonEl.textContent = this.physics.crashReason;
+            }
+        } else {
+            if (crashOverlay && !crashOverlay.classList.contains('hidden')) {
+                crashOverlay.classList.add('hidden');
+            }
+        }
+
         // 1. Process User Inputs
         this.processInputs(dt);
 
-        // 2. Update Physics Engine
-        this.physics.update(dt);
+        // 2. Update Physics Engine with Terrain Lookup
+        this.physics.update(dt, (x, z) => this.world.getTerrainHeight(x, z));
 
         // 3. Update 3D Aircraft Model
         this.aircraft.update(this.physics, dt);

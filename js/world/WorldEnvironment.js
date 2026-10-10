@@ -6,6 +6,10 @@ export class WorldEnvironment {
         this.clouds = [];
         this.windsockProp = null;
 
+        // Procedural Textures for distance & altitude visual perception
+        this.terrainTexture = this.generateTerrainDetailTexture();
+        this.runwayTexture = this.generateRunwayAsphaltTexture();
+
         this.buildLighting();
         this.buildSkyAndSun();
         this.buildMountainTerrain();
@@ -51,6 +55,81 @@ export class WorldEnvironment {
         this.scene.add(sunMesh);
     }
 
+    generateTerrainDetailTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#808080';
+        ctx.fillRect(0, 0, 512, 512);
+
+        // High frequency noise / rock-grass grain texture
+        const imgData = ctx.getImageData(0, 0, 512, 512);
+        const data = imgData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const grain = (Math.random() - 0.5) * 60;
+            data[i] = Math.min(255, Math.max(0, 128 + grain));
+            data[i + 1] = Math.min(255, Math.max(0, 128 + grain));
+            data[i + 2] = Math.min(255, Math.max(0, 128 + grain));
+            data[i + 3] = 255;
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+
+        // Grid pattern overlay for clear altitude/distance grid cues
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 4;
+        const step = 64;
+        for (let x = 0; x <= 512; x += step) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, 512);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(0, x);
+            ctx.lineTo(512, x);
+            ctx.stroke();
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(120, 120); // Repeated over 12000m terrain
+        return texture;
+    }
+
+    generateRunwayAsphaltTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+
+        ctx.fillStyle = '#22262d';
+        ctx.fillRect(0, 0, 256, 256);
+
+        const imgData = ctx.getImageData(0, 0, 256, 256);
+        const data = imgData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+            const noise = (Math.random() - 0.5) * 35;
+            data[i] = Math.min(255, Math.max(0, 35 + noise));
+            data[i + 1] = Math.min(255, Math.max(0, 38 + noise));
+            data[i + 2] = Math.min(255, Math.max(0, 45 + noise));
+            data[i + 3] = 255;
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(6, 120);
+        return texture;
+    }
+
     buildMountainTerrain() {
         // High quality terrain with valleys and mountain peaks
         const terrainSize = 12000;
@@ -63,20 +142,8 @@ export class WorldEnvironment {
 
         for (let i = 0; i < posAttr.count; i++) {
             vertex.fromBufferAttribute(posAttr, i);
-
-            // Keep airport valley flat around origin (z: -1500 to +1500, x: -600 to +600)
-            const distFromRunwayX = Math.abs(vertex.x);
-            const distFromRunwayZ = Math.abs(vertex.z);
-
-            if (distFromRunwayX < 600 && distFromRunwayZ < 1800) {
-                // Smooth transition to flat runway valley
-                const flatFactor = Math.min(1.0, Math.max(0.0, (distFromRunwayX - 250) / 350));
-                let height = this.getProceduralHeight(vertex.x, vertex.z) * flatFactor;
-                posAttr.setY(i, height);
-            } else {
-                let height = this.getProceduralHeight(vertex.x, vertex.z);
-                posAttr.setY(i, height);
-            }
+            const height = this.getProceduralHeight(vertex.x, vertex.z);
+            posAttr.setY(i, height);
         }
 
         terrainGeo.computeVertexNormals();
@@ -114,6 +181,7 @@ export class WorldEnvironment {
 
         const terrainMat = new THREE.MeshStandardMaterial({
             vertexColors: true,
+            map: this.terrainTexture,
             roughness: 0.9,
             metalness: 0.1
         });
@@ -124,6 +192,10 @@ export class WorldEnvironment {
     }
 
     getProceduralHeight(x, z) {
+        // Keep airport valley flat around origin (z: -1800 to +1800, x: -600 to +600)
+        const distFromRunwayX = Math.abs(x);
+        const distFromRunwayZ = Math.abs(z);
+
         // Multi-layered sine wave noise for natural mountain terrain
         const nx = x * 0.0005;
         const nz = z * 0.0005;
@@ -138,7 +210,18 @@ export class WorldEnvironment {
             h += (distFromCenter - 1000) * 0.25;
         }
 
-        return Math.max(0, h);
+        const rawHeight = Math.max(0, h);
+
+        if (distFromRunwayX < 600 && distFromRunwayZ < 1800) {
+            const flatFactor = Math.min(1.0, Math.max(0.0, (distFromRunwayX - 250) / 350));
+            return rawHeight * flatFactor;
+        }
+
+        return rawHeight;
+    }
+
+    getTerrainHeight(x, z) {
+        return this.getProceduralHeight(x, z);
     }
 
     buildAirport() {
@@ -148,6 +231,7 @@ export class WorldEnvironment {
         const runwayGeo = new THREE.PlaneGeometry(60, 3000);
         runwayGeo.rotateX(-Math.PI / 2);
         const runwayMat = new THREE.MeshStandardMaterial({
+            map: this.runwayTexture,
             color: 0x1e293b,
             roughness: 0.8
         });
