@@ -32,7 +32,17 @@ function runPhysicsTests() {
     physics.update(0.05);
     console.log(`Flaps deployed, AoA: ${physics.aoaDeg.toFixed(1)}°`);
 
-    // Test 5: Mountain Collision Detection
+    // Test 5: Banking turn test
+    physics.resetState(false); // Airborne at 100 kts
+    physics.roll = 0.5; // Banked right ~28 degrees
+    const initHeading = physics.heading;
+    for (let i = 0; i < 20; i++) {
+        physics.update(0.05);
+    }
+    console.log(`Banked 28° turn heading delta: ${(physics.heading - initHeading).toFixed(3)} rad`);
+    console.assert(Math.abs(physics.heading - initHeading) > 0.05, "Banking should turn heading smoothly");
+
+    // Test 6: Mountain Collision Detection
     physics.resetState(false);
     // Place aircraft heading straight into mountain at (x: 2000, y: 150, z: 2000)
     // Mock terrain function with mountain peak height = 300m

@@ -305,6 +305,22 @@ export class FlightPhysics {
         let targetRollRate = this.controls.roll * this.aileronAuthority * controlQ;
         let targetYawRate = -this.controls.yaw * this.rudderAuthority * controlQ;
 
+        // Coordinated turn mechanics (Banking causes turn rate via horizontal lift component: Turn Rate = g * tan(bank) / V)
+        if (!this.isGrounded && speed > 5.0) {
+            const bankTurnRate = (this.gravity * Math.tan(this.roll)) / speed;
+            targetYawRate -= bankTurnRate;
+
+            // Sideslip weathercock directional stability (nose naturally aligns with velocity vector)
+            const horizontalVelocitySpeed = Math.sqrt(this.worldVelocity.x * this.worldVelocity.x + this.worldVelocity.z * this.worldVelocity.z);
+            if (horizontalVelocitySpeed > 2.0) {
+                const velHeading = Math.atan2(-this.worldVelocity.x, -this.worldVelocity.z);
+                let headingError = velHeading - this.heading;
+                while (headingError > Math.PI) headingError -= Math.PI * 2;
+                while (headingError < -Math.PI) headingError += Math.PI * 2;
+                targetYawRate += headingError * 0.8;
+            }
+        }
+
         // Ground steering via rudder when grounded
         if (this.isGrounded) {
             targetYawRate += -this.controls.yaw * 0.05 * (speed / 10);
