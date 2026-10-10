@@ -5,94 +5,65 @@ export class CameraSystem {
         this.camera = camera;
         this.domElement = domElement;
 
-        // Camera Modes: 'cockpit' or 'chase'
-        this.mode = 'chase';
+        // Camera Modes
+        // 0: Above-and-Behind Elevated Follow Camera (FPS-like top-down over-the-shoulder)
+        // 1: Top-Down Arena View
+        // 2: Tight Over-the-head First Person
+        this.mode = 0;
 
-        // Offset positions relative to aircraft origin
-        this.cockpitOffset = new THREE.Vector3(0, 0.52, -0.25); // Inside windshield pilot seat
-        this.chaseOffset = new THREE.Vector3(0, 3.5, 14.0);     // Behind and slightly above
+        // Elevated Follow Camera Offset configuration
+        this.followDistance = 12.0; // Distance behind snake head
+        this.followHeight = 10.0;   // Height above snake head
+        this.lookAhead = 4.0;       // Distance forward ahead of head to target
 
-        // Chase camera smoothing target
-        this.currentPos = new THREE.Vector3();
-        this.currentLookAt = new THREE.Vector3();
+        // Smooth camera dampening
+        this.currentPos = new THREE.Vector3(0, 20, 20);
+        this.currentLookAt = new THREE.Vector3(0, 0, 0);
 
-        // Mouse look / Orbit offsets
-        this.mouseLookYaw = 0;
-        this.mouseLookPitch = 0;
-        this.isMouseDown = false;
-
-        this.initMouseControls();
-    }
-
-    initMouseControls() {
-        window.addEventListener('mousedown', (e) => {
-            if (e.button === 0) this.isMouseDown = true;
-        });
-        window.addEventListener('mouseup', () => {
-            this.isMouseDown = false;
-        });
-        window.addEventListener('mousemove', (e) => {
-            if (this.isMouseDown) {
-                this.mouseLookYaw -= e.movementX * 0.003;
-                this.mouseLookPitch -= e.movementY * 0.003;
-                this.mouseLookPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, this.mouseLookPitch));
-            }
-        });
+        this.camera.position.copy(this.currentPos);
+        this.camera.lookAt(this.currentLookAt);
     }
 
     toggleMode() {
-        this.mode = (this.mode === 'chase') ? 'cockpit' : 'chase';
-        this.mouseLookYaw = 0;
-        this.mouseLookPitch = 0;
-        return this.mode;
+        this.mode = (this.mode + 1) % 3;
     }
 
-    update(physics, aircraftMesh, dt) {
-        const aircraftPos = new THREE.Vector3(physics.position.x, physics.position.y, physics.position.z);
+    update(snake, dt) {
+        if (!snake || !snake.position) return;
 
-        // Aircraft Rotation Matrix
-        const rotationMatrix = new THREE.Matrix4();
-        const euler = new THREE.Euler(physics.pitch, -physics.heading, -physics.roll, 'YXZ');
-        rotationMatrix.makeRotationFromEuler(euler);
+        const targetPos = new THREE.Vector3();
+        const targetLookAt = new THREE.Vector3();
 
-        if (this.mode === 'cockpit') {
-            // Cockpit view: Rigid attach to pilot seat position with mouse look offset
-            const localCockpit = this.cockpitOffset.clone();
-            localCockpit.applyMatrix4(rotationMatrix);
+        // Snake forward vector and right vector
+        const forward = snake.forward.clone().normalize();
+        const up = new THREE.Vector3(0, 1, 0);
 
-            const targetCamPos = aircraftPos.clone().add(localCockpit);
-            this.camera.position.copy(targetCamPos);
+        if (this.mode === 0) {
+            // Elevated Follow Camera (Above character, following heading and position)
+            const behindOffset = forward.clone().multiplyScalar(-this.followDistance);
+            const heightOffset = up.clone().multiplyScalar(this.followHeight);
 
-            // Forward vector
-            const lookOffset = new THREE.Vector3(0, 0, -10);
+            targetPos.copy(snake.position).add(behindOffset).add(heightOffset);
+            targetLookAt.copy(snake.position).add(forward.clone().multiplyScalar(this.lookAhead));
+        } else if (this.mode === 1) {
+            // Top-Down Overview Camera
+            targetPos.set(0, 48, 0.1);
+            targetLookAt.set(0, 0, 0);
+        } else if (this.mode === 2) {
+            // Low-angle Over-the-Head Third-Person / FPS
+            const behindOffset = forward.clone().multiplyScalar(-5.0);
+            const heightOffset = up.clone().multiplyScalar(2.8);
 
-            // Apply mouse look rotation
-            const mouseLookEuler = new THREE.Euler(physics.pitch + this.mouseLookPitch, -physics.heading + this.mouseLookYaw, -physics.roll, 'YXZ');
-            const mouseLookMatrix = new THREE.Matrix4().makeRotationFromEuler(mouseLookEuler);
-            lookOffset.applyMatrix4(mouseLookMatrix);
-
-            const lookTarget = targetCamPos.clone().add(lookOffset);
-            this.camera.lookAt(lookTarget);
-
-            // Make aircraft model semi-transparent or adjust windshield visibility if in cockpit
-            aircraftMesh.visible = true; // Cockpit visible around camera
-        } else {
-            // Chase view: Smooth spring-like camera following behind aircraft
-            aircraftMesh.visible = true;
-
-            const localChase = this.chaseOffset.clone();
-            localChase.applyMatrix4(rotationMatrix);
-
-            const targetCamPos = aircraftPos.clone().add(localChase);
-            const targetLookAt = aircraftPos.clone().add(new THREE.Vector3(0, 1.0, -2.0).applyMatrix4(rotationMatrix));
-
-            // Smooth interpolation (lerp)
-            const lerpFactor = Math.min(1.0, dt * 8.0);
-            this.currentPos.lerp(targetCamPos, lerpFactor);
-            this.currentLookAt.lerp(targetLookAt, lerpFactor);
-
-            this.camera.position.copy(this.currentPos);
-            this.camera.lookAt(this.currentLookAt);
+            targetPos.copy(snake.position).add(behindOffset).add(heightOffset);
+            targetLookAt.copy(snake.position).add(forward.clone().multiplyScalar(8.0));
         }
+
+        // Smooth interpolation (LERP) for fluid camera motion
+        const lerpFactor = Math.min(1.0, dt * 6.0);
+        this.currentPos.lerp(targetPos, lerpFactor);
+        this.currentLookAt.lerp(targetLookAt, lerpFactor);
+
+        this.camera.position.copy(this.currentPos);
+        this.camera.lookAt(this.currentLookAt);
     }
 }

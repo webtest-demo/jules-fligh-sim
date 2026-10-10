@@ -1,17 +1,25 @@
 import * as THREE from 'three';
-import { FlightPhysics } from './physics/FlightPhysics.js';
-import { AircraftModel } from './graphics/AircraftModel.js';
+import { Board } from './game/Board.js';
+import { Snake } from './game/Snake.js';
+import { FoodManager } from './game/FoodManager.js';
 import { CameraSystem } from './graphics/CameraSystem.js';
-import { WorldEnvironment } from './world/WorldEnvironment.js';
-import { InstrumentPanel } from './ui/InstrumentPanel.js';
 
-class FlightSimulatorApp {
+class SnakeGame3DApp {
     constructor() {
         this.container = document.getElementById('canvas-container');
 
+        // Game State
+        this.score = 0;
+        this.highScore = parseInt(localStorage.getItem('snake3d_highscore') || '0', 10);
+        this.isGameOver = false;
+        this.isPaused = false;
+
         // Three.js Core Components
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 15000);
+        this.scene.background = new THREE.Color(0x050811);
+        this.scene.fog = new THREE.FogExp2(0x050811, 0.012);
+
+        this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -22,21 +30,37 @@ class FlightSimulatorApp {
 
         window.app = this;
 
-        // Simulation Modules
-        this.physics = new FlightPhysics();
-        this.aircraft = new AircraftModel();
-        this.scene.add(this.aircraft.group);
-
-        this.world = new WorldEnvironment(this.scene);
+        // Game Modules
+        this.board = new Board(this.scene, 60, 30);
+        this.snake = new Snake(this.scene);
+        this.foodManager = new FoodManager(this.scene, this.board.bounds);
         this.cameraSystem = new CameraSystem(this.camera, this.renderer.domElement);
-        this.instrumentPanel = new InstrumentPanel();
 
-        // Control State Management
+        // Input & Clock
         this.keys = {};
         this.clock = new THREE.Clock();
 
+        this.initUI();
         this.initEventListeners();
+        this.updateHUD();
+
         this.animate();
+    }
+
+    initUI() {
+        this.scoreEl = document.getElementById('val-score');
+        this.lengthEl = document.getElementById('val-length');
+        this.highscoreEl = document.getElementById('val-highscore');
+        this.gameOverOverlay = document.getElementById('game-over-overlay');
+        this.pauseOverlay = document.getElementById('pause-overlay');
+        this.gameOverReasonEl = document.getElementById('game-over-reason');
+        this.finalScoreEl = document.getElementById('final-score');
+        this.finalHighscoreEl = document.getElementById('final-highscore');
+        this.restartBtn = document.getElementById('restart-btn');
+
+        if (this.restartBtn) {
+            this.restartBtn.addEventListener('click', () => this.restartGame());
+        }
     }
 
     initEventListeners() {
@@ -50,17 +74,17 @@ class FlightSimulatorApp {
                 this.cameraSystem.toggleMode();
             }
 
-            // Reset state
-            if (e.code === 'KeyR') {
-                this.physics.resetState(true);
+            // Pause toggle
+            if (e.code === 'KeyP' && !this.isGameOver) {
+                this.isPaused = !this.isPaused;
+                if (this.pauseOverlay) {
+                    this.pauseOverlay.classList.toggle('hidden', !this.isPaused);
+                }
             }
 
-            // Flaps increment
-            if (e.code === 'KeyF') {
-                this.physics.controls.flaps = Math.min(1.0, this.physics.controls.flaps + 0.333);
-            }
-            if (e.code === 'KeyV') {
-                this.physics.controls.flaps = Math.max(0.0, this.physics.controls.flaps - 0.333);
+            // Reset / Restart
+            if (e.code === 'KeyR') {
+                this.restartGame();
             }
         });
 
@@ -69,103 +93,104 @@ class FlightSimulatorApp {
         });
     }
 
-    processInputs(dt) {
-        // Pitch Control (W / S) - 2x faster rate
-        if (this.keys['KeyW']) {
-            this.physics.controls.pitch = Math.max(-1.0, this.physics.controls.pitch - dt * 6.0);
-        } else if (this.keys['KeyS']) {
-            this.physics.controls.pitch = Math.min(1.0, this.physics.controls.pitch + dt * 6.0);
-        } else {
-            this.physics.controls.pitch *= 0.82; // Return to center
-        }
-
-        // Roll Control (A / D) - 2x faster rate
-        if (this.keys['KeyA']) {
-            this.physics.controls.roll = Math.max(-1.0, this.physics.controls.roll - dt * 6.0);
-        } else if (this.keys['KeyD']) {
-            this.physics.controls.roll = Math.min(1.0, this.physics.controls.roll + dt * 6.0);
-        } else {
-            this.physics.controls.roll *= 0.82;
-        }
-
-        // Yaw Control (Q / E) - 2x faster rate
-        if (this.keys['KeyQ']) {
-            this.physics.controls.yaw = Math.max(-1.0, this.physics.controls.yaw - dt * 6.0);
-        } else if (this.keys['KeyE']) {
-            this.physics.controls.yaw = Math.min(1.0, this.physics.controls.yaw + dt * 6.0);
-        } else {
-            this.physics.controls.yaw *= 0.82;
-        }
-
-        // Throttle Control (Shift / Ctrl)
-        if (this.keys['ShiftLeft'] || this.keys['ShiftRight']) {
-            this.physics.controls.throttle = Math.min(1.0, this.physics.controls.throttle + dt * 0.5);
-        }
-        if (this.keys['ControlLeft'] || this.keys['ControlRight']) {
-            this.physics.controls.throttle = Math.max(0.0, this.physics.controls.throttle - dt * 0.5);
-        }
-
-        // Elevator Trim (T / G)
-        if (this.keys['KeyT']) {
-            this.physics.controls.trim = Math.max(-1.0, this.physics.controls.trim - dt * 0.5);
-        }
-        if (this.keys['KeyG']) {
-            this.physics.controls.trim = Math.min(1.0, this.physics.controls.trim + dt * 0.5);
-        }
-
-        // Brakes (B)
-        this.physics.controls.brakes = !!this.keys['KeyB'];
-    }
-
     onWindowResize() {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
+    restartGame() {
+        this.score = 0;
+        this.isGameOver = false;
+        this.isPaused = false;
+
+        if (this.gameOverOverlay) this.gameOverOverlay.classList.add('hidden');
+        if (this.pauseOverlay) this.pauseOverlay.classList.add('hidden');
+
+        this.snake.reset();
+        this.foodManager.reset();
+        this.updateHUD();
+    }
+
+    processInputs() {
+        let turn = 0;
+        let pitch = 0;
+
+        if (this.keys['KeyA'] || this.keys['ArrowLeft']) turn += 1;
+        if (this.keys['KeyD'] || this.keys['ArrowRight']) turn -= 1;
+
+        if (this.keys['KeyW'] || this.keys['ArrowUp']) pitch += 1;
+        if (this.keys['KeyS'] || this.keys['ArrowDown']) pitch -= 1;
+
+        const boost = !!this.keys['Space'];
+
+        this.snake.setInputs(turn, pitch, boost);
+    }
+
+    triggerGameOver(reason) {
+        this.isGameOver = true;
+        if (this.score > this.highScore) {
+            this.highScore = this.score;
+            localStorage.setItem('snake3d_highscore', this.highScore.toString());
+        }
+
+        if (this.gameOverReasonEl) this.gameOverReasonEl.textContent = reason;
+        if (this.finalScoreEl) this.finalScoreEl.textContent = this.score.toString();
+        if (this.finalHighscoreEl) this.finalHighscoreEl.textContent = this.highScore.toString();
+        if (this.gameOverOverlay) this.gameOverOverlay.classList.remove('hidden');
+
+        this.updateHUD();
+    }
+
+    updateHUD() {
+        if (this.scoreEl) this.scoreEl.textContent = this.score.toString();
+        if (this.lengthEl) this.lengthEl.textContent = (this.snake ? this.snake.length + 1 : 4).toString();
+        if (this.highscoreEl) this.highscoreEl.textContent = this.highScore.toString();
+    }
+
     animate() {
         requestAnimationFrame(() => this.animate());
 
-        const dt = this.clock.getDelta();
+        const dt = Math.min(this.clock.getDelta(), 0.1);
 
-        // Handle Crash UI Overlay
-        const crashOverlay = document.getElementById('crash-overlay');
-        const crashReasonEl = document.getElementById('crash-reason');
-        if (this.physics.isCrashed) {
-            if (crashOverlay && crashOverlay.classList.contains('hidden')) {
-                crashOverlay.classList.remove('hidden');
-                if (crashReasonEl) crashReasonEl.textContent = this.physics.crashReason;
+        if (!this.isGameOver && !this.isPaused) {
+            // 1. Process User Controls
+            this.processInputs();
+
+            // 2. Update Snake Logic & Physics
+            this.snake.update(dt);
+
+            // 3. Update Food Manager
+            this.foodManager.update(dt);
+
+            // 4. Check Food Collision
+            const pointsGained = this.foodManager.checkCollisions(this.snake.position, this.snake.radius);
+            if (pointsGained > 0) {
+                this.score += pointsGained;
+                this.snake.grow(1);
+                this.updateHUD();
             }
-        } else {
-            if (crashOverlay && !crashOverlay.classList.contains('hidden')) {
-                crashOverlay.classList.add('hidden');
+
+            // 5. Check Wall Boundary Collision
+            if (this.board.isOutOfBounds(this.snake.position, this.snake.radius)) {
+                this.triggerGameOver('You crashed into the border wall!');
+            }
+
+            // 6. Check Self Body Collision
+            if (this.snake.checkSelfCollision()) {
+                this.triggerGameOver('You ran into your own body!');
             }
         }
 
-        // 1. Process User Inputs
-        this.processInputs(dt);
+        // 7. Update Camera System
+        this.cameraSystem.update(this.snake, dt);
 
-        // 2. Update Physics Engine with Terrain Lookup
-        this.physics.update(dt, (x, z) => this.world.getTerrainHeight(x, z));
-
-        // 3. Update 3D Aircraft Model
-        this.aircraft.update(this.physics, dt);
-
-        // 4. Update World Environment
-        this.world.update(dt);
-
-        // 5. Update Camera System
-        this.cameraSystem.update(this.physics, this.aircraft.group, dt);
-
-        // 6. Update Flight Instrument Gauges & Telemetry
-        this.instrumentPanel.update(this.physics);
-
-        // 7. Render 3D Scene
+        // 8. Render 3D Scene
         this.renderer.render(this.scene, this.camera);
     }
 }
 
-// Start Simulator on Window Load
+// Start 3D Snake App on DOM Loaded
 window.addEventListener('DOMContentLoaded', () => {
-    new FlightSimulatorApp();
+    new SnakeGame3DApp();
 });
